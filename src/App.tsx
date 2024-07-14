@@ -2,55 +2,66 @@ import { Slider } from "./components/ui/slider";
 import audio from "./audio/audio.mp3";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "./components/ui/button";
+import { Filter, Gain, Player } from "tone";
 
 function App() {
-  const [isPlaying, setIsPlaying] = useState(false);
-  const ctx = useRef<AudioContext>();
-  const gain = useRef<GainNode>();
-  const biquadFilter = useRef<BiquadFilterNode>();
-  const source = useRef<AudioBufferSourceNode>();
-
-  const [bassBoost, setBassBoost] = useState<number>(0);
-  const [volume, setVolume] = useState<number>(0.5);
+  const player = useRef<Player>();
+  const bassFilter = useRef<Filter>();
+  const trebleFilter = useRef<Filter>();
+  const gain = useRef<Gain>();
+  const [bassValue, setBassValue] = useState(20000);
+  const [volume, setVolume] = useState(0.5);
+  const [trebleLevel, setTrebleLevel] = useState(0);
 
   useEffect(() => {
-    (async () => {
-      ctx.current = new AudioContext();
-      source.current = ctx.current.createBufferSource();
+    bassFilter.current = new Filter({
+      type: "lowpass", // Low-pass filter
+      frequency: bassValue, // Cutoff frequency in Hz (adjust as needed)
+      Q: 1, // Quality factor (resonance)
+    });
 
-      gain.current = ctx.current.createGain();
-      gain.current.gain.value = 0.5;
+    trebleFilter.current = new Filter({
+      type: "highshelf", // High shelf filter for treble
+      frequency: 4000, // Initial cutoff frequency in Hz
+      gain: trebleLevel, // Initial gain for treble
+    });
 
-      biquadFilter.current = ctx.current.createBiquadFilter();
-      biquadFilter.current.type = "lowshelf";
-      biquadFilter.current.frequency.value = 3000;
-      biquadFilter.current.gain.value = 0;
+    gain.current = new Gain({
+      gain: volume,
+    }).toDestination();
 
-      const audioBuffer = await fetch(audio)
-        .then((data) => data.arrayBuffer())
-        .then((buffer) => ctx.current?.decodeAudioData(buffer));
+    player.current = new Player({ url: audio })
+      .connect(bassFilter.current)
+      .connect(trebleFilter.current)
+      .connect(gain.current);
 
-      source.current.buffer = audioBuffer as AudioBuffer;
-      source.current.connect(biquadFilter.current);
-      biquadFilter.current.connect(gain.current);
-      gain.current.connect(ctx.current.destination);
-    })();
+    return () => {
+      player.current?.dispose();
+      bassFilter.current?.dispose();
+      gain.current?.dispose();
+      trebleFilter.current?.dispose()
+    };
   }, []);
+
+  const handlePlay = () => {
+    if (player.current && player.current.loaded) {
+      player.current?.start();
+    }
+  };
 
   return (
     <main className="h-screen flex items-center justify-center flex-col">
       <div className="w-80 space-y-6">
         <div>
-          <p>Bass {bassBoost}</p>
+          <p>Bass {bassValue.toLocaleString()}</p>
           <Slider
-            value={[bassBoost]}
-            defaultValue={[0]}
-            max={15}
-            min={0}
-            step={0.1}
-            onValueChange={(value) => {
-              biquadFilter.current!.gain.value = value[0];
-              setBassBoost(value[0]);
+            defaultValue={[bassValue]}
+            max={20_000}
+            min={2_000}
+            step={100}
+            onValueChange={(value) => {              
+              bassFilter.current!.frequency.value = value[0];
+              setBassValue(value[0]);
             }}
           />
         </div>
@@ -68,34 +79,20 @@ function App() {
           />
         </div>
         <div>
-          <p>Mid (disabled)</p>
+          <p>Treble</p>
           <Slider
-            defaultValue={[50]}
-            max={100}
+            defaultValue={[0]}
+            min={-12}
+            max={12}
             step={1}
-            disabled
-            className="opacity-45"
-          />
-        </div>
-        <div>
-          <p>Treble (disabled)</p>
-          <Slider
-            defaultValue={[50]}
-            max={100}
-            step={1}
-            disabled
-            className="opacity-45"
+            onValueChange={(value) => {
+              trebleFilter.current!.gain.value = value[0];
+              setTrebleLevel(value[0]);
+            }}
           />
         </div>
       </div>
-      <Button
-        className="mt-3"
-        disabled={isPlaying}
-        onClick={() => {
-          source.current?.start();
-          setIsPlaying(true);
-        }}
-      >
+      <Button className="mt-3" onClick={handlePlay}>
         Play
       </Button>
     </main>
